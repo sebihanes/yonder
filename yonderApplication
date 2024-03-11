@@ -1,0 +1,79 @@
+
+import requests
+import json
+import datetime
+import os
+from openpyxl import Workbook
+
+class LicenseAuthority:
+    def __init__(self, base_url):
+        self.base_url = base_url
+
+    def get_questions(self):
+        url = f"{self.base_url}/"
+        response = requests.get(url)
+        if response.status_code == 200:
+            return response.text
+        else:
+            return "Failed to retrieve questions."
+
+    def get_driver_licenses(self, length=30):
+        url = f"{self.base_url}/drivers-licenses/list?length={length}"
+        response = requests.get(url)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return []
+
+    def list_suspended_licenses(self, data_points):
+        suspended_licenses = [license for license in data_points if license['suspedat']]
+        return suspended_licenses
+
+    def extract_valid_licenses(self, data_points):
+        today = datetime.date.today()
+        valid_licenses = [license for license in data_points if datetime.datetime.strptime(license['data_de_expirare'], '%Y-%m-%d').date() >= today]
+        return valid_licenses
+
+    def find_license_count_by_category(self, data_points):
+        categories = {}
+        for license in data_points:
+            category = license['categorie']
+            categories[category] = categories.get(category, 0) + 1
+        return categories
+
+    def generate_excel_file(self, data, filename):
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["ID", "Nume", "Prenume", "Categorie", "Data de Emitere", "Data de Expirare", "Suspendat"])
+        for item in data:
+            ws.append([item['id'], item['nume'], item['prenume'], item['categorie'], item['data_de_emitere'], item['data_de_expirare'], item['suspedat']])
+        wb.save(filename)
+
+if __name__ == "__main__":
+    base_url = "http://localhost:30000"  # Assuming API is running locally on port 30000
+    authority = LicenseAuthority(base_url)
+
+    # Prompt user for operation ID
+    operation_id = input("Enter operation ID (1: List suspended licenses, 2: Extract valid licenses, 3: Find license count by category): ")
+
+    # Get data points from the API
+    data_points = authority.get_driver_licenses(150)
+
+    if operation_id == "1":
+        suspended_licenses = authority.list_suspended_licenses(data_points)
+        authority.generate_excel_file(suspended_licenses, "suspended_licenses.xlsx")
+        print("Suspended licenses saved to suspended_licenses.xlsx")
+
+    elif operation_id == "2":
+        valid_licenses = authority.extract_valid_licenses(data_points)
+        authority.generate_excel_file(valid_licenses, "valid_licenses.xlsx")
+        print("Valid licenses issued until today's date saved to valid_licenses.xlsx")
+
+    elif operation_id == "3":
+        license_count_by_category = authority.find_license_count_by_category(data_points)
+        with open("license_count_by_category.json", "w") as file:
+            json.dump(license_count_by_category, file)
+        print("License count by category saved to license_count_by_category.json")
+
+    else:
+        print("Invalid operation ID. Please enter 1, 2, or 3.")
